@@ -695,7 +695,7 @@
         var smsNotify = document.getElementById('smsNotify').checked;
         var interviewRemind = document.getElementById('interviewRemind').checked;
 
-        alert('通知设置已保存！\n邮件通知: ' + (emailNotify ? '开启' : '关闭') + '\n短信通知: ' + (smsNotify ? '开启' : '关闭') + '\n面试提醒: ' + (interviewRemind ? '开启' : '关闭'));
+        alert('通知设置已保存。\n\n当前版本仅保存界面开关，不会实际发送邮件或短信。\n邮件通知: ' + (emailNotify ? '开启' : '关闭') + '\n短信通知: ' + (smsNotify ? '开启' : '关闭') + '\n面试提醒: ' + (interviewRemind ? '开启' : '关闭'));
     }
 
     if (document.readyState === 'loading') {

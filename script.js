@@ -163,7 +163,7 @@
     function initForm() {
         var form = document.getElementById('applicationForm');
         var modal = document.getElementById('successModal');
-        var modalClose = document.querySelector('.modal-close');
+        var modalClose = modal ? modal.querySelector('.modal-close') : null;
         var duplicateModal = document.getElementById('duplicateModal');
         var duplicateModalClose = document.getElementById('duplicateModalClose');
         var duplicateMessage = document.getElementById('duplicateMessage');
