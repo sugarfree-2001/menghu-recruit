@@ -40,37 +40,45 @@
         rejected: 'status-rejected'
     };
 
-    function loadCandidatesFromStorage() {
-        try {
-            var stored = localStorage.getItem('wohuCandidates');
-            if (stored) {
-                candidatesData = JSON.parse(stored);
-            } else {
-                candidatesData = defaultCandidatesData.slice();
-                saveCandidatesToStorage();
-            }
-        } catch (e) {
-            candidatesData = defaultCandidatesData.slice();
-        }
+    function normalizeCandidate(candidate) {
+        candidate.submitTime = candidate.submitTime || candidate.submit_time || '';
+        candidate.status = candidate.status || 'pending';
+        return candidate;
     }
 
-    function saveCandidatesToStorage() {
-        try {
-            localStorage.setItem('wohuCandidates', JSON.stringify(candidatesData));
-        } catch (e) {
-            console.error('保存候选人数据失败:', e);
+    function loadCandidatesFromServer(callback) {
+        if (typeof fetch === 'undefined') {
+            candidatesData = [];
+            if (callback) callback();
+            return;
         }
+
+        fetch('/api/candidates')
+            .then(function(response) {
+                if (!response.ok) throw new Error('候选人数据加载失败');
+                return response.json();
+            })
+            .then(function(result) {
+                candidatesData = (result.data || []).map(normalizeCandidate);
+                if (callback) callback();
+            })
+            .catch(function(error) {
+                console.error(error);
+                candidatesData = [];
+                if (callback) callback();
+            });
     }
 
     function init() {
-        loadCandidatesFromStorage();
         initNavigation();
         initSearch();
         initFilter();
         initButtons();
         initDuplicateButtons();
-        loadDashboard();
-        loadCandidates();
+        loadCandidatesFromServer(function() {
+            loadDashboard();
+            loadCandidates();
+        });
     }
 
     function initNavigation() {
@@ -177,10 +185,11 @@
 
         if (refreshBtn) {
             refreshBtn.addEventListener('click', function() {
-                loadCandidatesFromStorage();
-                loadCandidates();
-                loadDashboard();
-                loadProcess();
+                loadCandidatesFromServer(function() {
+                    loadCandidates();
+                    loadDashboard();
+                    loadProcess();
+                });
             });
         }
 
@@ -241,12 +250,13 @@
 
         if (nextPage) {
             nextPage.addEventListener('click', function() {
-                var duplicateRecords = getDuplicateRecords();
-                var totalPages = Math.ceil(duplicateRecords.length / duplicatePageSize);
-                if (duplicatePage < totalPages) {
-                    duplicatePage++;
-                    loadDuplicates();
-                }
+                fetchDuplicateRecords(function(duplicateRecords) {
+                    var totalPages = Math.ceil(duplicateRecords.length / duplicatePageSize);
+                    if (duplicatePage < totalPages) {
+                        duplicatePage++;
+                        loadDuplicates();
+                    }
+                });
             });
         }
     }
@@ -261,8 +271,6 @@
     }
 
     function searchCandidates(keyword) {
-        loadCandidatesFromStorage();
-
         if (!keyword.trim()) {
             loadCandidates();
             return;
@@ -324,9 +332,9 @@
                 '<td><span class="status-badge ' + statusColors[c.status] + '">' + statusLabels[c.status] + '</span></td>' +
                 '<td>' + c.submitTime + '</td>' +
                 '<td>' +
-                    '<button class="action-btn view" onclick="viewCandidate(' + c.id + ')">查看</button>' +
+                    '<button class="action-btn view" onclick="viewCandidate(\'' + c.id + '\')">查看</button>' +
                     (c.status !== 'offer' && c.status !== 'rejected' ?
-                        '<button class="action-btn edit" onclick="editCandidate(' + c.id + ')">编辑</button>' : '') +
+                        '<button class="action-btn edit" onclick="editCandidate(\'' + c.id + '\')">编辑</button>' : '') +
                 '</td>';
             table.appendChild(row);
         }
@@ -365,35 +373,51 @@
         document.getElementById('step4Count').innerHTML = step4Count;
     }
 
-    function getDuplicateRecords() {
-        var records = [];
-        try {
-            var stored = localStorage.getItem('wohuDuplicateRecords');
-            if (stored) {
-                records = JSON.parse(stored);
-            }
-        } catch (e) {
-            records = [];
+    function normalizeDuplicate(record) {
+        record.duplicateField = record.duplicateField || (String(record.duplicate_type || '').indexOf('phone') !== -1 ? 'phone' : 'email');
+        record.submitTime = record.submitTime || record.submit_time || '';
+        record.existingCandidateName = record.existingCandidateName || '未知';
+        record.existingCandidateSchool = record.existingCandidateSchool || '未知';
+        return record;
+    }
+
+    function fetchDuplicateRecords(callback) {
+        if (typeof fetch === 'undefined') {
+            callback([]);
+            return;
         }
-        return records;
+
+        fetch('/api/duplicates')
+            .then(function(response) {
+                if (!response.ok) throw new Error('查重记录加载失败');
+                return response.json();
+            })
+            .then(function(result) {
+                callback((result.data || []).map(normalizeDuplicate));
+            })
+            .catch(function(error) {
+                console.error(error);
+                callback([]);
+            });
     }
 
     function loadDuplicates() {
-        var records = getDuplicateRecords();
-        var totalCount = records.length;
-        var phoneCount = records.filter(function(r) { return r.duplicateField === 'phone'; }).length;
-        var emailCount = records.filter(function(r) { return r.duplicateField === 'email'; }).length;
+        fetchDuplicateRecords(function(records) {
+            var totalCount = records.length;
+            var phoneCount = records.filter(function(r) { return r.duplicateField === 'phone'; }).length;
+            var emailCount = records.filter(function(r) { return r.duplicateField === 'email'; }).length;
 
-        document.getElementById('duplicateTotalCount').innerHTML = totalCount;
-        document.getElementById('duplicatePhoneCount').innerHTML = phoneCount;
-        document.getElementById('duplicateEmailCount').innerHTML = emailCount;
+            document.getElementById('duplicateTotalCount').innerHTML = totalCount;
+            document.getElementById('duplicatePhoneCount').innerHTML = phoneCount;
+            document.getElementById('duplicateEmailCount').innerHTML = emailCount;
 
-        var start = (duplicatePage - 1) * duplicatePageSize;
-        var end = start + duplicatePageSize;
-        var paginated = records.slice(start, end);
+            var start = (duplicatePage - 1) * duplicatePageSize;
+            var end = start + duplicatePageSize;
+            var paginated = records.slice(start, end);
 
-        renderDuplicateTable(paginated);
-        updateDuplicatePagination(totalCount);
+            renderDuplicateTable(paginated);
+            updateDuplicatePagination(totalCount);
+        });
     }
 
     function renderDuplicateTable(records) {
@@ -446,20 +470,26 @@
 
     function clearDuplicates() {
         if (confirm('确定要清空所有查重记录吗？')) {
-            try {
-                localStorage.removeItem('wohuDuplicateRecords');
+            fetch('/api/duplicates', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'clear' })
+            })
+            .then(function(response) {
+                if (!response.ok) throw new Error('清空失败');
                 duplicatePage = 1;
                 loadDuplicates();
                 alert('查重记录已清空');
-            } catch (e) {
-                console.error('清空查重记录失败:', e);
-            }
+            })
+            .catch(function(error) {
+                console.error(error);
+                alert('清空失败，请稍后重试');
+            });
         }
     }
 
     window.viewCandidate = function(id) {
-        loadCandidatesFromStorage();
-        currentCandidate = candidatesData.find(function(c) { return c.id === id; });
+        currentCandidate = candidatesData.find(function(c) { return String(c.id) === String(id); });
 
         if (!currentCandidate) return;
 
@@ -496,11 +526,9 @@
     window.updateStatus = function(action) {
         if (!currentCandidate) return;
 
-        loadCandidatesFromStorage();
-
         var candidateIndex = -1;
         for (var i = 0; i < candidatesData.length; i++) {
-            if (candidatesData[i].id === currentCandidate.id) {
+            if (String(candidatesData[i].id) === String(currentCandidate.id)) {
                 candidateIndex = i;
                 break;
             }
@@ -515,11 +543,31 @@
             candidatesData[candidateIndex].status = 'rejected';
         }
 
-        saveCandidatesToStorage();
-        loadCandidates();
-        loadDashboard();
-        loadProcess();
-        closeModal();
+        fetch('/api/candidates', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                action: 'update',
+                id: currentCandidate.id,
+                status: candidatesData[candidateIndex].status
+            })
+        })
+        .then(function(response) {
+            if (!response.ok) throw new Error('状态更新失败');
+            return response.json();
+        })
+        .then(function() {
+            loadCandidatesFromServer(function() {
+                loadCandidates();
+                loadDashboard();
+                loadProcess();
+                closeModal();
+            });
+        })
+        .catch(function(error) {
+            console.error(error);
+            alert('状态更新失败，请稍后重试');
+        });
     };
 
     function getNextStatus(current) {

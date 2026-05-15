@@ -1,7 +1,9 @@
-FROM nginx:alpine
+FROM python:3.12-alpine
 
-COPY . /usr/share/nginx/html
+WORKDIR /app
+COPY . /app
 
-EXPOSE 80
+ENV PORT=8000
+EXPOSE 8000
 
-CMD ["nginx", "-g", "daemon off;"]
+CMD ["python", "simple_deploy.py"]

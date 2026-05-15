@@ -9,6 +9,9 @@
 import os
 import sys
 import json
+import time
+from email.parser import BytesParser
+from email import policy
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 from http.cookies import SimpleCookie
@@ -16,12 +19,14 @@ import base64
 
 # 配置
 HOST = '0.0.0.0'
-PORT = 8000
-UPLOAD_DIR = 'uploads'
-DATA_FILE = 'candidates.json'
-DUPLICATE_FILE = 'duplicates.json'
+PORT = int(os.environ.get('PORT', '8000'))
+DATA_DIR = os.environ.get('DATA_DIR', os.getcwd())
+UPLOAD_DIR = os.path.join(DATA_DIR, 'uploads')
+DATA_FILE = os.path.join(DATA_DIR, 'candidates.json')
+DUPLICATE_FILE = os.path.join(DATA_DIR, 'duplicates.json')
 
 # 确保目录存在
+os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 # 候选人数据管理
@@ -62,6 +67,29 @@ def check_duplicate(phone, email):
             duplicates.append({'type': 'email', 'name': c.get('name', '未知'), 'email': c.get('email')})
     return duplicates
 
+def normalize_candidate(candidate):
+    candidate = dict(candidate)
+    if 'submitTime' not in candidate and 'submit_time' in candidate:
+        candidate['submitTime'] = candidate.get('submit_time')
+    if 'submit_time' not in candidate and 'submitTime' in candidate:
+        candidate['submit_time'] = candidate.get('submitTime')
+    candidate.setdefault('status', 'pending')
+    return candidate
+
+def normalize_duplicate(record):
+    record = dict(record)
+    if 'duplicateField' not in record and 'duplicate_type' in record:
+        duplicate_type = str(record.get('duplicate_type') or '')
+        record['duplicateField'] = 'phone' if 'phone' in duplicate_type else 'email'
+    if 'submitTime' not in record and 'submit_time' in record:
+        record['submitTime'] = record.get('submit_time')
+    conflicts = record.get('conflict_with') or []
+    if conflicts and isinstance(conflicts, list):
+        record.setdefault('existingCandidateName', conflicts[0].get('name', '未知'))
+    record.setdefault('existingCandidateName', '未知')
+    record.setdefault('existingCandidateSchool', '未知')
+    return record
+
 # 自定义请求处理器
 class MyHandler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
@@ -92,6 +120,13 @@ class MyHandler(SimpleHTTPRequestHandler):
         
         # 默认处理
         super().do_GET()
+
+    def do_OPTIONS(self):
+        self.send_response(204)
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+        self.end_headers()
     
     def do_POST(self):
         if self.path == '/api/submit-resume':
@@ -107,17 +142,17 @@ class MyHandler(SimpleHTTPRequestHandler):
         path = self.path[5:]  # 去掉 /api/
         
         if path == 'candidates':
-            candidates = load_candidates()
+            candidates = [normalize_candidate(c) for c in load_candidates()]
             self.send_json({'success': True, 'data': candidates})
         elif path == 'duplicates':
-            duplicates = load_duplicates()
+            duplicates = [normalize_duplicate(r) for r in load_duplicates()]
             self.send_json({'success': True, 'data': duplicates})
         elif path.startswith('candidates/'):
             # 获取单个候选人
             try:
-                cid = path.split('/')[1]
-                candidates = load_candidates()
-                candidate = next((c for c in candidates if c.get('id') == cid), None)
+                cid = str(path.split('/')[1])
+                candidates = [normalize_candidate(c) for c in load_candidates()]
+                candidate = next((c for c in candidates if str(c.get('id')) == cid), None)
                 if candidate:
                     self.send_json({'success': True, 'data': candidate})
                 else:
@@ -137,10 +172,10 @@ class MyHandler(SimpleHTTPRequestHandler):
             
             if action == 'update':
                 candidates = load_candidates()
-                cid = data.get('id')
+                cid = str(data.get('id'))
                 status = data.get('status')
                 for c in candidates:
-                    if c.get('id') == cid:
+                    if str(c.get('id')) == cid:
                         c['status'] = status
                         break
                 save_candidates(candidates)
@@ -148,8 +183,8 @@ class MyHandler(SimpleHTTPRequestHandler):
             
             elif action == 'delete':
                 candidates = load_candidates()
-                cid = data.get('id')
-                candidates = [c for c in candidates if c.get('id') != cid]
+                cid = str(data.get('id'))
+                candidates = [c for c in candidates if str(c.get('id')) != cid]
                 save_candidates(candidates)
                 self.send_json({'success': True, 'message': '删除成功'})
             
@@ -176,54 +211,18 @@ class MyHandler(SimpleHTTPRequestHandler):
     
     def handle_submit_resume(self):
         try:
-            # 解析multipart/form-data
-            content_type = self.headers.get('Content-Type', '')
-            boundary = content_type.split('boundary=')[1].encode('utf-8')
-            
-            content_length = int(self.headers.get('Content-Length', 0))
-            body = self.rfile.read(content_length)
-            
-            # 解析表单数据
-            fields = {}
-            files = {}
-            
-            parts = body.split(b'--' + boundary)
-            for part in parts:
-                if b'Content-Disposition' in part:
-                    # 解析Content-Disposition
-                    lines = part.split(b'\r\n')
-                    disp_line = [l for l in lines if b'Content-Disposition' in l][0].decode('utf-8')
-                    
-                    # 提取name
-                    import re
-                    name_match = re.search(r'name="([^"]+)"', disp_line)
-                    if not name_match:
-                        continue
-                    name = name_match.group(1)
-                    
-                    # 提取filename（如果是文件）
-                    filename_match = re.search(r'filename="([^"]+)"', disp_line)
-                    
-                    # 找到内容起始位置（空行之后）
-                    content_start = part.find(b'\r\n\r\n') + 4
-                    content_end = part.rfind(b'\r\n--')
-                    content = part[content_start:content_end]
-                    
-                    if filename_match:
-                        # 文件字段
-                        filename = filename_match.group(1)
-                        files[name] = {'filename': filename, 'content': content}
-                    else:
-                        # 普通字段
-                        fields[name] = content.decode('utf-8')
-            
-            # 获取表单数据
-            name = fields.get('name', '')
-            email = fields.get('email', '')
-            phone = fields.get('phone', '')
-            school = fields.get('school', '')
-            major = fields.get('major', '')
-            introduction = fields.get('introduction', '')
+            form, files = self.parse_multipart_form()
+
+            name = (form.get('name') or '').strip()
+            email = (form.get('email') or '').strip()
+            phone = (form.get('phone') or '').strip()
+            school = (form.get('school') or '').strip()
+            major = (form.get('major') or '').strip()
+            introduction = (form.get('introduction') or '').strip()
+
+            if not all([name, email, phone, school, major, introduction]):
+                self.send_json({'success': False, 'message': '请完整填写申请信息'}, 400)
+                return
             
             # 检查重复
             duplicate_info = check_duplicate(phone, email)
@@ -231,36 +230,47 @@ class MyHandler(SimpleHTTPRequestHandler):
                 # 记录重复
                 duplicates = load_duplicates()
                 duplicates.append({
+                    'id': str(int(time.time() * 1000)),
                     'name': name,
                     'school': school,
                     'major': major,
                     'phone': phone,
                     'email': email,
                     'duplicate_type': ','.join([d['type'] for d in duplicate_info]),
+                    'duplicateField': duplicate_info[0]['type'],
                     'conflict_with': [{'name': d['name'], 'type': d['type']} for d in duplicate_info],
-                    'submit_time': self.get_current_time()
+                    'existingCandidateName': duplicate_info[0]['name'],
+                    'existingCandidateSchool': '未知',
+                    'submit_time': self.get_current_time(),
+                    'submitTime': self.get_current_time()
                 })
                 save_duplicates(duplicates)
                 
                 self.send_json({
                     'success': False,
                     'message': '信息重复',
-                    'duplicates': duplicate_info
+                    'duplicates': duplicate_info,
+                    'duplicate': {
+                        'field': duplicate_info[0]['type'],
+                        'candidate': {'name': duplicate_info[0]['name'], 'school': '未知'}
+                    }
                 })
                 return
             
             # 保存简历文件
             resume_filename = None
-            if 'resume' in files:
-                resume_data = files['resume']
-                resume_filename = f"{name}_{phone}_{resume_data['filename']}"
+            resume_item = files.get('resume')
+            if resume_item:
+                safe_filename = os.path.basename(resume_item['filename'])
+                resume_filename = f"{name}_{phone}_{safe_filename}"
                 resume_path = os.path.join(UPLOAD_DIR, resume_filename)
                 with open(resume_path, 'wb') as f:
-                    f.write(resume_data['content'])
+                    f.write(resume_item['content'])
             
             # 保存候选人数据
             candidates = load_candidates()
-            candidate_id = str(len(candidates) + 1).zfill(4)
+            candidate_id = str(int(time.time() * 1000))
+            submit_time = self.get_current_time()
             
             candidates.append({
                 'id': candidate_id,
@@ -272,7 +282,8 @@ class MyHandler(SimpleHTTPRequestHandler):
                 'introduction': introduction,
                 'resume': resume_filename,
                 'status': 'pending',
-                'submit_time': self.get_current_time()
+                'submit_time': submit_time,
+                'submitTime': submit_time
             })
             save_candidates(candidates)
             
@@ -284,6 +295,37 @@ class MyHandler(SimpleHTTPRequestHandler):
         except Exception as e:
             print(f"Error: {e}")
             self.send_json({'success': False, 'message': str(e)}, 500)
+
+    def parse_multipart_form(self):
+        content_type = self.headers.get('Content-Type', '')
+        content_length = int(self.headers.get('Content-Length', 0))
+        body = self.rfile.read(content_length)
+
+        message_bytes = (
+            f'Content-Type: {content_type}\r\nMIME-Version: 1.0\r\n\r\n'.encode('utf-8') + body
+        )
+        message = BytesParser(policy=policy.default).parsebytes(message_bytes)
+
+        fields = {}
+        files = {}
+        for part in message.iter_parts():
+            disposition = part.get('Content-Disposition', '')
+            if 'form-data' not in disposition:
+                continue
+
+            field_name = part.get_param('name', header='content-disposition')
+            if not field_name:
+                continue
+
+            filename = part.get_filename()
+            payload = part.get_payload(decode=True) or b''
+            if filename:
+                files[field_name] = {'filename': filename, 'content': payload}
+            else:
+                charset = part.get_content_charset() or 'utf-8'
+                fields[field_name] = payload.decode(charset, errors='replace')
+
+        return fields, files
     
     def handle_static_file(self, path):
         try:

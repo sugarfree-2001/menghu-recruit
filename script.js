@@ -160,62 +160,6 @@
         }
     }
 
-    function checkDuplicate(phone, email) {
-        var candidatesData = [];
-        try {
-            var stored = localStorage.getItem('wohuCandidates');
-            if (stored) {
-                candidatesData = JSON.parse(stored);
-            }
-        } catch (e) {
-            candidatesData = [];
-        }
-
-        for (var i = 0; i < candidatesData.length; i++) {
-            var c = candidatesData[i];
-            if (c.phone === phone) {
-                return { duplicate: true, field: 'phone', candidate: c };
-            }
-            if (c.email === email) {
-                return { duplicate: true, field: 'email', candidate: c };
-            }
-        }
-        return { duplicate: false };
-    }
-
-    function addDuplicateRecord(formData, matchedCandidate) {
-        var duplicateRecords = [];
-        try {
-            var stored = localStorage.getItem('wohuDuplicateRecords');
-            if (stored) {
-                duplicateRecords = JSON.parse(stored);
-            }
-        } catch (e) {
-            duplicateRecords = [];
-        }
-
-        var record = {
-            id: Date.now(),
-            name: formData.name,
-            phone: formData.phone,
-            email: formData.email,
-            school: formData.school,
-            major: formData.major,
-            submitTime: new Date().toLocaleString('zh-CN'),
-            duplicateField: matchedCandidate.phone === formData.phone ? 'phone' : 'email',
-            existingCandidateName: matchedCandidate.name,
-            existingCandidateSchool: matchedCandidate.school
-        };
-
-        duplicateRecords.unshift(record);
-
-        try {
-            localStorage.setItem('wohuDuplicateRecords', JSON.stringify(duplicateRecords));
-        } catch (e) {
-            console.error('保存查重记录失败:', e);
-        }
-    }
-
     function initForm() {
         var form = document.getElementById('applicationForm');
         var modal = document.getElementById('successModal');
@@ -261,80 +205,46 @@
                 return;
             }
 
-            var duplicateResult = checkDuplicate(formData.phone, formData.email);
-
-            if (duplicateResult.duplicate) {
-                var fieldText = duplicateResult.field === 'phone' ? '手机号' : '邮箱';
-                duplicateMessage.innerHTML = '检测到您提交的' + fieldText + '已在系统中存在（候选人：' + duplicateResult.candidate.name + '，院校：' + duplicateResult.candidate.school + '），无法重复投递。\n\n此次投递已记录到查重日志中。';
-                addClass(duplicateModal, 'show');
-                document.body.style.overflow = 'hidden';
-
-                addDuplicateRecord(formData, duplicateResult.candidate);
-                return;
-            }
-
             if (typeof fetch !== 'undefined') {
-                fetch('https://api.example.com/apply', {
+                fetch('/api/submit-resume', {
                     method: 'POST',
                     body: new FormData(form)
                 })
                 .then(function(response) {
-                    if (!response.ok) {
-                        throw new Error('网络请求失败');
-                    }
-                    return response.json();
+                    return response.json().then(function(data) {
+                        if (!response.ok || !data.success) {
+                            var error = new Error(data.message || '提交失败');
+                            error.data = data;
+                            throw error;
+                        }
+                        return data;
+                    });
                 })
                 .then(function(data) {
                     if (typeof console !== 'undefined') {
                         console.log('提交成功:', data);
                     }
-                    saveCandidateToStorage(formData);
                     showSuccessModal();
                 })
                 .catch(function(error) {
                     if (typeof console !== 'undefined') {
                         console.error('提交失败:', error);
                     }
-                    saveCandidateToStorage(formData);
-                    showSuccessModal();
+                    if (error.data && error.data.duplicate && duplicateModal && duplicateMessage) {
+                        var duplicate = error.data.duplicate;
+                        var fieldText = duplicate.field === 'phone' ? '手机号' : '邮箱';
+                        var candidate = duplicate.candidate || {};
+                        duplicateMessage.innerHTML = '检测到您提交的' + fieldText + '已在系统中存在（候选人：' + (candidate.name || '未知') + '，院校：' + (candidate.school || '未知') + '），无法重复投递。\n\n此次投递已记录到查重日志中。';
+                        addClass(duplicateModal, 'show');
+                        document.body.style.overflow = 'hidden';
+                    } else {
+                        alert(error.message || '提交失败，请稍后重试');
+                    }
                 });
             } else {
-                saveCandidateToStorage(formData);
-                showSuccessModal();
+                alert('当前浏览器不支持在线提交，请更换现代浏览器后重试');
             }
         });
-
-        function saveCandidateToStorage(formData) {
-            var candidatesData = [];
-            try {
-                var stored = localStorage.getItem('wohuCandidates');
-                if (stored) {
-                    candidatesData = JSON.parse(stored);
-                }
-            } catch (e) {
-                candidatesData = [];
-            }
-
-            var newCandidate = {
-                id: Date.now(),
-                name: formData.name,
-                school: formData.school,
-                major: formData.major,
-                email: formData.email,
-                phone: formData.phone,
-                status: 'pending',
-                introduction: formData.introduction,
-                submitTime: new Date().toLocaleString('zh-CN')
-            };
-
-            candidatesData.push(newCandidate);
-
-            try {
-                localStorage.setItem('wohuCandidates', JSON.stringify(candidatesData));
-            } catch (e) {
-                console.error('保存候选人数据失败:', e);
-            }
-        }
 
         function showSuccessModal() {
             addClass(modal, 'show');
