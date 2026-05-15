@@ -19,11 +19,19 @@ import base64
 
 # 配置
 HOST = '0.0.0.0'
-PORT = int(os.environ.get('PORT', '8000'))
 DATA_DIR = os.environ.get('DATA_DIR', os.getcwd())
 UPLOAD_DIR = os.path.join(DATA_DIR, 'uploads')
 DATA_FILE = os.path.join(DATA_DIR, 'candidates.json')
 DUPLICATE_FILE = os.path.join(DATA_DIR, 'duplicates.json')
+
+def get_port():
+    for key in ('WEB_PORT', 'PORT'):
+        value = os.environ.get(key)
+        if value and value.isdigit():
+            return int(value)
+    return 8000
+
+PORT = get_port()
 
 # 确保目录存在
 os.makedirs(DATA_DIR, exist_ok=True)
