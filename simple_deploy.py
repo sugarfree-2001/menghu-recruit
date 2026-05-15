@@ -29,7 +29,7 @@ def get_port():
         value = os.environ.get(key)
         if value and value.isdigit():
             return int(value)
-    return 8000
+    return 80
 
 PORT = get_port()
 
