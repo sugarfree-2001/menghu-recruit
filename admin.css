@@ -104,6 +104,13 @@ body.admin-locked .login-screen {
     background: #e85d2a;
 }
 
+.settings-hint {
+    margin: 8px 0 16px;
+    color: #666;
+    font-size: 0.9rem;
+    line-height: 1.5;
+}
+
 .admin-layout {
     display: flex;
     min-height: 100vh;

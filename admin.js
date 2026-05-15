@@ -24,6 +24,11 @@
     var duplicatePage = 1;
     var duplicatePageSize = 10;
     var adminInitialized = false;
+    var notificationStatus = {
+        emailConfigured: false,
+        smsConfigured: false,
+        smsProvider: ''
+    };
 
     var statusLabels = {
         pending: '简历投递',
@@ -82,6 +87,8 @@
         initFilter();
         initButtons();
         initDuplicateButtons();
+        loadSettingsFromServer();
+        loadNotificationStatus();
         loadCandidatesFromServer(function() {
             loadDashboard();
             loadCandidates();
@@ -333,6 +340,56 @@
                 });
             });
         }
+    }
+
+    function loadSettingsFromServer() {
+        fetch('/api/settings')
+            .then(function(response) {
+                if (!response.ok) throw new Error('设置加载失败');
+                return response.json();
+            })
+            .then(function(result) {
+                var settings = result.data || {};
+                var deadline = document.getElementById('deadlineInput');
+                var filterRule = document.getElementById('filterRule');
+                var emailNotify = document.getElementById('emailNotify');
+                var smsNotify = document.getElementById('smsNotify');
+                var interviewRemind = document.getElementById('interviewRemind');
+
+                if (deadline) deadline.value = settings.deadline || '';
+                if (filterRule) filterRule.value = settings.filterRule || 'normal';
+                if (emailNotify) emailNotify.checked = settings.emailNotify !== false;
+                if (smsNotify) smsNotify.checked = settings.smsNotify === true;
+                if (interviewRemind) interviewRemind.checked = settings.interviewRemind !== false;
+            })
+            .catch(function(error) {
+                console.error(error);
+            });
+    }
+
+    function loadNotificationStatus() {
+        fetch('/api/notification-status')
+            .then(function(response) {
+                if (!response.ok) throw new Error('通知通道状态加载失败');
+                return response.json();
+            })
+            .then(function(result) {
+                notificationStatus = result.data || notificationStatus;
+                updateNotificationHint();
+            })
+            .catch(function(error) {
+                console.error(error);
+                updateNotificationHint();
+            });
+    }
+
+    function updateNotificationHint() {
+        var hint = document.getElementById('notificationStatusHint');
+        if (!hint) return;
+
+        var emailText = notificationStatus.emailConfigured ? '邮件通道已配置' : '邮件通道未配置 SMTP';
+        var smsText = notificationStatus.smsConfigured ? '短信通道已配置' : '短信通道未配置';
+        hint.textContent = emailText + '；' + smsText + '。状态变更时会按开关尝试通知候选人。';
     }
 
     function getFilteredCandidates() {
@@ -630,13 +687,14 @@
             if (!response.ok) throw new Error('状态更新失败');
             return response.json();
         })
-        .then(function() {
+        .then(function(result) {
             loadCandidatesFromServer(function() {
                 loadCandidates();
                 loadDashboard();
                 loadProcess();
                 closeModal();
             });
+            showNotificationResult(result.notifications);
         })
         .catch(function(error) {
             console.error(error);
@@ -695,7 +753,49 @@
         var smsNotify = document.getElementById('smsNotify').checked;
         var interviewRemind = document.getElementById('interviewRemind').checked;
 
-        alert('通知设置已保存。\n\n当前版本仅保存界面开关，不会实际发送邮件或短信。\n邮件通知: ' + (emailNotify ? '开启' : '关闭') + '\n短信通知: ' + (smsNotify ? '开启' : '关闭') + '\n面试提醒: ' + (interviewRemind ? '开启' : '关闭'));
+        fetch('/api/settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                deadline: document.getElementById('deadlineInput').value,
+                filterRule: document.getElementById('filterRule').value,
+                emailNotify: emailNotify,
+                smsNotify: smsNotify,
+                interviewRemind: interviewRemind
+            })
+        })
+        .then(function(response) {
+            if (!response.ok) throw new Error('通知设置保存失败');
+            return response.json();
+        })
+        .then(function() {
+            loadNotificationStatus();
+            var warnings = [];
+            if (emailNotify && !notificationStatus.emailConfigured) {
+                warnings.push('邮件通知已开启，但 SMTP 尚未配置，暂时无法真实发送邮件。');
+            }
+            if (smsNotify && !notificationStatus.smsConfigured) {
+                warnings.push('短信通知已开启，但短信通道尚未配置，暂时无法真实发送短信。');
+            }
+            alert('通知设置已保存。\n邮件通知: ' + (emailNotify ? '开启' : '关闭') + '\n短信通知: ' + (smsNotify ? '开启' : '关闭') + '\n面试提醒: ' + (interviewRemind ? '开启' : '关闭') + (warnings.length ? '\n\n' + warnings.join('\n') : ''));
+        })
+        .catch(function(error) {
+            console.error(error);
+            alert(error.message || '通知设置保存失败');
+        });
+    }
+
+    function showNotificationResult(result) {
+        if (!result) return;
+
+        if (result.errors && result.errors.length) {
+            alert('候选人状态已更新，但通知发送存在问题：\n' + result.errors.join('\n'));
+            return;
+        }
+
+        if (result.email === 'sent' || result.sms === 'sent') {
+            alert('候选人状态已更新，通知已发送。');
+        }
     }
 
     if (document.readyState === 'loading') {
