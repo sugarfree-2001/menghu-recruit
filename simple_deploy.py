@@ -12,6 +12,7 @@ import json
 import time
 import secrets
 import smtplib
+import subprocess
 import hmac
 import hashlib
 import urllib.parse
@@ -140,8 +141,11 @@ def is_aliyun_mail_configured():
     ]
     return all(os.environ.get(key) for key in required)
 
+def is_lark_cli_mail_configured():
+    return os.environ.get('LARK_CLI_MAIL_ENABLED', '').lower() == 'true'
+
 def is_email_configured():
-    return is_smtp_email_configured() or is_aliyun_mail_configured()
+    return is_lark_cli_mail_configured() or is_smtp_email_configured() or is_aliyun_mail_configured()
 
 def is_aliyun_sms_configured():
     required = [
@@ -235,13 +239,53 @@ def send_aliyun_mail(candidate, status):
     if result.get('Code') and result.get('Code') != 'OK':
         raise RuntimeError(result.get('Message') or '阿里云邮件推送发送失败')
 
+def send_lark_cli_mail(candidate, status):
+    if not is_lark_cli_mail_configured():
+        raise RuntimeError('邮件通知未启用飞书 CLI 通道')
+
+    subject, body = build_notification_content(candidate, status)
+    lark_cli_bin = os.environ.get('LARK_CLI_BIN', 'lark-cli')
+    command = [
+        lark_cli_bin,
+        'mail',
+        '+send',
+        '--to',
+        candidate.get('email', ''),
+        '--subject',
+        subject,
+        '--body',
+        body,
+        '--plain-text',
+        '--confirm-send'
+    ]
+
+    mailbox = os.environ.get('LARK_MAIL_MAILBOX')
+    sender = os.environ.get('LARK_MAIL_FROM')
+    if mailbox:
+        command.extend(['--mailbox', mailbox])
+    if sender:
+        command.extend(['--from', sender])
+
+    if lark_cli_bin.lower().endswith('.ps1'):
+        command = ['powershell', '-ExecutionPolicy', 'Bypass', '-File'] + command
+
+    try:
+        result = subprocess.run(command, capture_output=True, text=True, timeout=45)
+    except FileNotFoundError:
+        raise RuntimeError('找不到 lark-cli，请配置 LARK_CLI_BIN 为可执行文件路径')
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or '').strip()
+        raise RuntimeError(detail or '飞书 CLI 邮件发送失败')
+
 def send_email_notification(candidate, status):
-    if is_aliyun_mail_configured():
+    if is_lark_cli_mail_configured():
+        send_lark_cli_mail(candidate, status)
+    elif is_aliyun_mail_configured():
         send_aliyun_mail(candidate, status)
     elif is_smtp_email_configured():
         send_smtp_email(candidate, status)
     else:
-        raise RuntimeError('邮件通知未配置 SMTP 或阿里云邮件推送环境变量')
+        raise RuntimeError('邮件通知未配置飞书 CLI、SMTP 或阿里云邮件推送环境变量')
 
 def percent_encode(value):
     return urllib.parse.quote(str(value), safe='~')
@@ -434,7 +478,7 @@ class MyHandler(SimpleHTTPRequestHandler):
                 'success': True,
                 'data': {
                     'emailConfigured': is_email_configured(),
-                    'emailProvider': 'aliyun' if is_aliyun_mail_configured() else ('smtp' if is_smtp_email_configured() else ''),
+                    'emailProvider': 'lark-cli' if is_lark_cli_mail_configured() else ('aliyun' if is_aliyun_mail_configured() else ('smtp' if is_smtp_email_configured() else '')),
                     'smsConfigured': is_aliyun_sms_configured() or is_webhook_sms_configured(),
                     'smsProvider': 'aliyun' if is_aliyun_sms_configured() else ('webhook' if is_webhook_sms_configured() else '')
                 }
