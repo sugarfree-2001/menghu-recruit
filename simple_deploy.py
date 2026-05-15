@@ -129,8 +129,19 @@ def get_admin_session_secret():
         f.write(token)
     return token
 
-def is_email_configured():
+def is_smtp_email_configured():
     return bool(os.environ.get('SMTP_HOST') and os.environ.get('SMTP_USER') and os.environ.get('SMTP_PASSWORD'))
+
+def is_aliyun_mail_configured():
+    required = [
+        'ALIYUN_MAIL_ACCESS_KEY_ID',
+        'ALIYUN_MAIL_ACCESS_KEY_SECRET',
+        'ALIYUN_MAIL_ACCOUNT_NAME'
+    ]
+    return all(os.environ.get(key) for key in required)
+
+def is_email_configured():
+    return is_smtp_email_configured() or is_aliyun_mail_configured()
 
 def is_aliyun_sms_configured():
     required = [
@@ -144,8 +155,18 @@ def is_aliyun_sms_configured():
 def is_webhook_sms_configured():
     return bool(os.environ.get('SMS_WEBHOOK_URL'))
 
-def send_email_notification(candidate, status):
-    if not is_email_configured():
+def build_notification_content(candidate, status):
+    status_label = STATUS_LABELS.get(status, status)
+    subject = f'萌虎计划申请进度更新：{status_label}'
+    body = (
+        f"{candidate.get('name', '同学')}，你好：\n\n"
+        f"你的萌虎计划申请状态已更新为：{status_label}。\n\n"
+        "感谢你对沃虎科技的关注。\n"
+    )
+    return subject, body
+
+def send_smtp_email(candidate, status):
+    if not is_smtp_email_configured():
         raise RuntimeError('邮件通知未配置 SMTP 环境变量')
 
     smtp_host = os.environ.get('SMTP_HOST')
@@ -155,16 +176,12 @@ def send_email_notification(candidate, status):
     smtp_from = os.environ.get('SMTP_FROM', smtp_user)
     smtp_ssl = os.environ.get('SMTP_SSL', 'true').lower() != 'false'
 
-    status_label = STATUS_LABELS.get(status, status)
+    subject, body = build_notification_content(candidate, status)
     message = EmailMessage()
-    message['Subject'] = f'萌虎计划申请进度更新：{status_label}'
+    message['Subject'] = subject
     message['From'] = smtp_from
     message['To'] = candidate.get('email', '')
-    message.set_content(
-        f"{candidate.get('name', '同学')}，你好：\n\n"
-        f"你的萌虎计划申请状态已更新为：{status_label}。\n\n"
-        "感谢你对沃虎科技的关注。\n"
-    )
+    message.set_content(body)
 
     smtp_class = smtplib.SMTP_SSL if smtp_ssl else smtplib.SMTP
     with smtp_class(smtp_host, smtp_port, timeout=20) as smtp:
@@ -172,6 +189,59 @@ def send_email_notification(candidate, status):
             smtp.starttls()
         smtp.login(smtp_user, smtp_password)
         smtp.send_message(message)
+
+def signed_aliyun_request(endpoint, params, access_key_secret):
+    params = dict(params)
+    params.update({
+        'Format': 'JSON',
+        'SignatureMethod': 'HMAC-SHA1',
+        'SignatureNonce': secrets.token_hex(16),
+        'SignatureVersion': '1.0',
+        'Timestamp': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
+    })
+    canonicalized = '&'.join(
+        percent_encode(k) + '=' + percent_encode(params[k])
+        for k in sorted(params)
+    )
+    string_to_sign = 'GET&%2F&' + percent_encode(canonicalized)
+    key = access_key_secret + '&'
+    digest = hmac.new(key.encode('utf-8'), string_to_sign.encode('utf-8'), hashlib.sha1).digest()
+    signature = base64.b64encode(digest).decode('utf-8')
+    query = canonicalized + '&Signature=' + percent_encode(signature)
+    with urllib.request.urlopen(endpoint + '/?' + query, timeout=20) as response:
+        return json.loads(response.read().decode('utf-8'))
+
+def send_aliyun_mail(candidate, status):
+    if not is_aliyun_mail_configured():
+        raise RuntimeError('邮件通知未配置阿里云邮件推送环境变量')
+
+    subject, body = build_notification_content(candidate, status)
+    result = signed_aliyun_request(
+        'https://dm.aliyuncs.com',
+        {
+            'AccessKeyId': os.environ.get('ALIYUN_MAIL_ACCESS_KEY_ID'),
+            'Action': 'SingleSendMail',
+            'Version': '2015-11-23',
+            'AccountName': os.environ.get('ALIYUN_MAIL_ACCOUNT_NAME'),
+            'AddressType': os.environ.get('ALIYUN_MAIL_ADDRESS_TYPE', '1'),
+            'ReplyToAddress': os.environ.get('ALIYUN_MAIL_REPLY_TO_ADDRESS', 'false'),
+            'FromAlias': os.environ.get('ALIYUN_MAIL_FROM_ALIAS', '萌虎计划'),
+            'ToAddress': candidate.get('email', ''),
+            'Subject': subject,
+            'TextBody': body
+        },
+        os.environ.get('ALIYUN_MAIL_ACCESS_KEY_SECRET')
+    )
+    if result.get('Code') and result.get('Code') != 'OK':
+        raise RuntimeError(result.get('Message') or '阿里云邮件推送发送失败')
+
+def send_email_notification(candidate, status):
+    if is_aliyun_mail_configured():
+        send_aliyun_mail(candidate, status)
+    elif is_smtp_email_configured():
+        send_smtp_email(candidate, status)
+    else:
+        raise RuntimeError('邮件通知未配置 SMTP 或阿里云邮件推送环境变量')
 
 def percent_encode(value):
     return urllib.parse.quote(str(value), safe='~')
@@ -183,35 +253,22 @@ def send_aliyun_sms(candidate, status):
     params = {
         'AccessKeyId': os.environ.get('ALIYUN_SMS_ACCESS_KEY_ID'),
         'Action': 'SendSms',
-        'Format': 'JSON',
         'PhoneNumbers': candidate.get('phone', ''),
         'RegionId': os.environ.get('ALIYUN_SMS_REGION', 'cn-hangzhou'),
         'SignName': os.environ.get('ALIYUN_SMS_SIGN_NAME'),
-        'SignatureMethod': 'HMAC-SHA1',
-        'SignatureNonce': secrets.token_hex(16),
-        'SignatureVersion': '1.0',
         'TemplateCode': os.environ.get('ALIYUN_SMS_TEMPLATE_CODE'),
         'TemplateParam': json.dumps({
             'name': candidate.get('name', ''),
             'status': STATUS_LABELS.get(status, status)
         }, ensure_ascii=False),
-        'Timestamp': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
         'Version': '2017-05-25'
     }
 
-    canonicalized = '&'.join(
-        percent_encode(k) + '=' + percent_encode(params[k])
-        for k in sorted(params)
+    result = signed_aliyun_request(
+        'https://dysmsapi.aliyuncs.com',
+        params,
+        os.environ.get('ALIYUN_SMS_ACCESS_KEY_SECRET')
     )
-    string_to_sign = 'GET&%2F&' + percent_encode(canonicalized)
-    key = os.environ.get('ALIYUN_SMS_ACCESS_KEY_SECRET') + '&'
-    digest = hmac.new(key.encode('utf-8'), string_to_sign.encode('utf-8'), hashlib.sha1).digest()
-    signature = base64.b64encode(digest).decode('utf-8')
-    query = canonicalized + '&Signature=' + percent_encode(signature)
-    url = 'https://dysmsapi.aliyuncs.com/?' + query
-
-    with urllib.request.urlopen(url, timeout=20) as response:
-        result = json.loads(response.read().decode('utf-8'))
     if result.get('Code') != 'OK':
         raise RuntimeError(result.get('Message') or '阿里云短信发送失败')
 
@@ -377,6 +434,7 @@ class MyHandler(SimpleHTTPRequestHandler):
                 'success': True,
                 'data': {
                     'emailConfigured': is_email_configured(),
+                    'emailProvider': 'aliyun' if is_aliyun_mail_configured() else ('smtp' if is_smtp_email_configured() else ''),
                     'smsConfigured': is_aliyun_sms_configured() or is_webhook_sms_configured(),
                     'smsProvider': 'aliyun' if is_aliyun_sms_configured() else ('webhook' if is_webhook_sms_configured() else '')
                 }

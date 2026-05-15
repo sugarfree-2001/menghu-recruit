@@ -1,1 +1,3 @@
-.vercel
+.tools/
+*.zip
+__pycache__/
