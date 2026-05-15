@@ -23,6 +23,7 @@
     var currentFilter = 'all';
     var duplicatePage = 1;
     var duplicatePageSize = 10;
+    var adminInitialized = false;
 
     var statusLabels = {
         pending: '简历投递',
@@ -70,6 +71,12 @@
     }
 
     function init() {
+        initAuth();
+    }
+
+    function initAdmin() {
+        if (adminInitialized) return;
+        adminInitialized = true;
         initNavigation();
         initSearch();
         initFilter();
@@ -79,6 +86,73 @@
             loadDashboard();
             loadCandidates();
         });
+    }
+
+    function initAuth() {
+        var loginForm = document.getElementById('loginForm');
+        var passwordInput = document.getElementById('adminPassword');
+        var loginError = document.getElementById('loginError');
+        var logoutBtn = document.querySelector('.logout-btn');
+
+        function unlock() {
+            document.body.classList.remove('admin-locked');
+            if (loginError) loginError.textContent = '';
+            if (passwordInput) passwordInput.value = '';
+        }
+
+        function lock() {
+            document.body.classList.add('admin-locked');
+            setTimeout(function() {
+                if (passwordInput) passwordInput.focus();
+            }, 0);
+        }
+
+        lock();
+
+        if (loginForm) {
+            loginForm.addEventListener('submit', function(e) {
+                e.preventDefault();
+                fetch('/api/admin-login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password: passwordInput ? passwordInput.value : '' })
+                })
+                .then(function(response) {
+                    if (!response.ok) throw new Error('密码不正确');
+                    return response.json();
+                })
+                .then(function() {
+                    unlock();
+                    initAdmin();
+                })
+                .catch(function(error) {
+                    if (loginError) loginError.textContent = error.message || '登录失败';
+                });
+            });
+        }
+
+        if (logoutBtn) {
+            logoutBtn.addEventListener('click', function(e) {
+                e.preventDefault();
+                fetch('/api/admin-logout', { method: 'POST' }).finally(function() {
+                    adminInitialized = false;
+                    lock();
+                });
+            });
+        }
+
+        fetch('/api/admin-session')
+            .then(function(response) {
+                if (!response.ok) throw new Error('未登录');
+                return response.json();
+            })
+            .then(function() {
+                unlock();
+                initAdmin();
+            })
+            .catch(function() {
+                lock();
+            });
     }
 
     function initNavigation() {

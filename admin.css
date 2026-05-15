@@ -10,6 +10,100 @@ body {
     color: #333;
 }
 
+body.admin-locked {
+    overflow: hidden;
+}
+
+body.admin-locked .admin-layout,
+body.admin-locked #candidateModal {
+    display: none;
+}
+
+.login-screen {
+    position: fixed;
+    inset: 0;
+    z-index: 2000;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: #f5f7fa;
+}
+
+body.admin-locked .login-screen {
+    display: flex;
+}
+
+.login-panel {
+    width: min(420px, 100%);
+    background: white;
+    border-radius: 8px;
+    padding: 32px;
+    box-shadow: 0 20px 60px rgba(31, 41, 55, 0.16);
+}
+
+.login-brand {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 24px;
+}
+
+.login-brand img {
+    width: 48px;
+    height: 48px;
+    object-fit: contain;
+}
+
+.login-brand h1 {
+    font-size: 1.35rem;
+    color: #222;
+    margin-bottom: 4px;
+}
+
+.login-brand p {
+    color: #666;
+    font-size: 0.9rem;
+}
+
+.login-panel input {
+    width: 100%;
+    padding: 14px 16px;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    font-size: 1rem;
+    outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.login-panel input:focus {
+    border-color: #FF6B35;
+    box-shadow: 0 0 0 3px rgba(255, 107, 53, 0.12);
+}
+
+.login-error {
+    min-height: 24px;
+    padding: 6px 0;
+    color: #d93025;
+    font-size: 0.9rem;
+}
+
+.login-panel button {
+    width: 100%;
+    border: none;
+    border-radius: 6px;
+    padding: 14px 16px;
+    background: #FF6B35;
+    color: white;
+    font-weight: 600;
+    font-size: 1rem;
+    cursor: pointer;
+}
+
+.login-panel button:hover {
+    background: #e85d2a;
+}
+
 .admin-layout {
     display: flex;
     min-height: 100vh;

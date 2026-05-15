@@ -10,6 +10,7 @@ import os
 import sys
 import json
 import time
+import secrets
 from email.parser import BytesParser
 from email import policy
 from http.server import HTTPServer, SimpleHTTPRequestHandler
@@ -23,6 +24,8 @@ DATA_DIR = os.environ.get('DATA_DIR', os.getcwd())
 UPLOAD_DIR = os.path.join(DATA_DIR, 'uploads')
 DATA_FILE = os.path.join(DATA_DIR, 'candidates.json')
 DUPLICATE_FILE = os.path.join(DATA_DIR, 'duplicates.json')
+ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'wohukeji666')
+ADMIN_SESSION_FILE = os.path.join(DATA_DIR, 'admin_session.secret')
 
 def get_port():
     for key in ('WEB_PORT', 'PORT'):
@@ -75,6 +78,18 @@ def check_duplicate(phone, email):
             duplicates.append({'type': 'email', 'name': c.get('name', '未知'), 'email': c.get('email')})
     return duplicates
 
+def get_admin_session_secret():
+    if os.path.exists(ADMIN_SESSION_FILE):
+        with open(ADMIN_SESSION_FILE, 'r', encoding='utf-8') as f:
+            token = f.read().strip()
+            if token:
+                return token
+
+    token = secrets.token_urlsafe(32)
+    with open(ADMIN_SESSION_FILE, 'w', encoding='utf-8') as f:
+        f.write(token)
+    return token
+
 def normalize_candidate(candidate):
     candidate = dict(candidate)
     if 'submitTime' not in candidate and 'submit_time' in candidate:
@@ -106,6 +121,9 @@ class MyHandler(SimpleHTTPRequestHandler):
     def do_GET(self):
         # 处理API请求
         if self.path.startswith('/api/'):
+            if self.path not in ('/api/admin-session',) and not self.is_public_api(self.path) and not self.is_authenticated():
+                self.send_json({'success': False, 'message': '请先登录'}, 401)
+                return
             self.handle_api()
             return
         
@@ -137,14 +155,32 @@ class MyHandler(SimpleHTTPRequestHandler):
         self.end_headers()
     
     def do_POST(self):
-        if self.path == '/api/submit-resume':
+        if self.path == '/api/admin-login':
+            self.handle_admin_login()
+        elif self.path == '/api/admin-logout':
+            self.handle_admin_logout()
+        elif self.path == '/api/submit-resume':
             self.handle_submit_resume()
         elif self.path == '/api/candidates':
+            if not self.is_authenticated():
+                self.send_json({'success': False, 'message': '请先登录'}, 401)
+                return
             self.handle_candidates()
         elif self.path == '/api/duplicates':
+            if not self.is_authenticated():
+                self.send_json({'success': False, 'message': '请先登录'}, 401)
+                return
             self.handle_duplicates()
         else:
             self.send_error(404, 'Not Found')
+
+    def is_public_api(self, path):
+        return path == '/api/submit-resume'
+
+    def is_authenticated(self):
+        cookie = SimpleCookie(self.headers.get('Cookie', ''))
+        session = cookie.get('menghu_admin_session')
+        return bool(session and secrets.compare_digest(session.value, get_admin_session_secret()))
     
     def handle_api(self):
         path = self.path[5:]  # 去掉 /api/
@@ -155,6 +191,11 @@ class MyHandler(SimpleHTTPRequestHandler):
         elif path == 'duplicates':
             duplicates = [normalize_duplicate(r) for r in load_duplicates()]
             self.send_json({'success': True, 'data': duplicates})
+        elif path == 'admin-session':
+            if self.is_authenticated():
+                self.send_json({'success': True})
+            else:
+                self.send_json({'success': False, 'message': '未登录'}, 401)
         elif path.startswith('candidates/'):
             # 获取单个候选人
             try:
@@ -200,6 +241,34 @@ class MyHandler(SimpleHTTPRequestHandler):
                 self.send_json({'success': False, 'message': '未知操作'}, 400)
         except Exception as e:
             self.send_json({'success': False, 'message': str(e)}, 500)
+
+    def handle_admin_login(self):
+        try:
+            content_length = int(self.headers.get('Content-Length', 0))
+            body = self.rfile.read(content_length).decode('utf-8')
+            data = json.loads(body or '{}')
+
+            if data.get('password') != ADMIN_PASSWORD:
+                self.send_json({'success': False, 'message': '密码不正确'}, 401)
+                return
+
+            token = get_admin_session_secret()
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json; charset=utf-8')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.send_header('Set-Cookie', f'menghu_admin_session={token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400')
+            self.end_headers()
+            self.wfile.write(json.dumps({'success': True}, ensure_ascii=False).encode('utf-8'))
+        except Exception as e:
+            self.send_json({'success': False, 'message': str(e)}, 500)
+
+    def handle_admin_logout(self):
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/json; charset=utf-8')
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Set-Cookie', 'menghu_admin_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0')
+        self.end_headers()
+        self.wfile.write(json.dumps({'success': True}, ensure_ascii=False).encode('utf-8'))
     
     def handle_duplicates(self):
         try:

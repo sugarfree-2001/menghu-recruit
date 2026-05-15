@@ -8,7 +8,21 @@
     <link rel="stylesheet" href="admin.css">
     <link href="https://fonts.googleapis.com/css2?family=PingFang+SC:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 </head>
-<body>
+<body class="admin-locked">
+    <div class="login-screen" id="loginScreen">
+        <form class="login-panel" id="loginForm">
+            <div class="login-brand">
+                <img src="Logo文件/logo标识.png" alt="沃虎科技">
+                <div>
+                    <h1>萌虎计划后台</h1>
+                    <p>请输入管理密码</p>
+                </div>
+            </div>
+            <input type="password" id="adminPassword" placeholder="管理密码" autocomplete="current-password" required>
+            <p class="login-error" id="loginError"></p>
+            <button type="submit">登录</button>
+        </form>
+    </div>
     <div class="admin-layout">
         <aside class="sidebar">
             <div class="sidebar-header">
