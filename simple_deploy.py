@@ -173,6 +173,15 @@ def send_smtp_email(candidate, status):
     if not is_smtp_email_configured():
         raise RuntimeError('邮件通知未配置 SMTP 环境变量')
 
+    send_smtp_message(
+        candidate.get('email', ''),
+        *build_notification_content(candidate, status)
+    )
+
+def send_smtp_message(to_address, subject, body):
+    if not is_smtp_email_configured():
+        raise RuntimeError('邮件通知未配置 SMTP 环境变量')
+
     smtp_host = os.environ.get('SMTP_HOST')
     smtp_port = int(os.environ.get('SMTP_PORT', '465'))
     smtp_user = os.environ.get('SMTP_USER')
@@ -180,11 +189,10 @@ def send_smtp_email(candidate, status):
     smtp_from = os.environ.get('SMTP_FROM', smtp_user)
     smtp_ssl = os.environ.get('SMTP_SSL', 'true').lower() != 'false'
 
-    subject, body = build_notification_content(candidate, status)
     message = EmailMessage()
     message['Subject'] = subject
     message['From'] = smtp_from
-    message['To'] = candidate.get('email', '')
+    message['To'] = to_address
     message.set_content(body)
 
     smtp_class = smtplib.SMTP_SSL if smtp_ssl else smtplib.SMTP
@@ -286,6 +294,25 @@ def send_email_notification(candidate, status):
         send_smtp_email(candidate, status)
     else:
         raise RuntimeError('邮件通知未配置飞书 CLI、SMTP 或阿里云邮件推送环境变量')
+
+def send_admin_submission_notification(candidate):
+    if not is_smtp_email_configured():
+        raise RuntimeError('管理员投递通知未配置 SMTP 环境变量')
+
+    to_address = os.environ.get('ADMIN_NOTIFY_EMAIL') or os.environ.get('SMTP_FROM') or os.environ.get('SMTP_USER')
+    subject = f"萌虎计划新简历投递：{candidate.get('name', '未知候选人')}"
+    body = (
+        "收到一份新的萌虎计划简历投递。\n\n"
+        f"姓名：{candidate.get('name', '')}\n"
+        f"学校：{candidate.get('school', '')}\n"
+        f"专业：{candidate.get('major', '')}\n"
+        f"邮箱：{candidate.get('email', '')}\n"
+        f"电话：{candidate.get('phone', '')}\n"
+        f"投递时间：{candidate.get('submitTime') or candidate.get('submit_time', '')}\n"
+        f"简历文件：{candidate.get('resume') or '未上传'}\n\n"
+        f"自我介绍：\n{candidate.get('introduction', '')}\n"
+    )
+    send_smtp_message(to_address, subject, body)
 
 def percent_encode(value):
     return urllib.parse.quote(str(value), safe='~')
@@ -666,7 +693,7 @@ class MyHandler(SimpleHTTPRequestHandler):
             candidate_id = str(int(time.time() * 1000))
             submit_time = self.get_current_time()
             
-            candidates.append({
+            candidate = {
                 'id': candidate_id,
                 'name': name,
                 'email': email,
@@ -678,8 +705,14 @@ class MyHandler(SimpleHTTPRequestHandler):
                 'status': 'pending',
                 'submit_time': submit_time,
                 'submitTime': submit_time
-            })
+            }
+            candidates.append(candidate)
             save_candidates(candidates)
+
+            try:
+                send_admin_submission_notification(candidate)
+            except Exception as e:
+                print(f"Admin notification error: {e}")
             
             self.send_json({
                 'success': True,
