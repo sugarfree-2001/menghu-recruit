@@ -336,6 +336,12 @@ def save_admin_digest_state(state):
     with open(ADMIN_DIGEST_FILE, 'w', encoding='utf-8') as f:
         json.dump(state, f, ensure_ascii=False, indent=2)
 
+def reset_admin_digest_state(now=None):
+    now = now or get_local_now()
+    state = {'last_sent_at': now.strftime('%Y-%m-%d %H:%M:%S')}
+    save_admin_digest_state(state)
+    return state
+
 def send_admin_candidate_digest(now=None):
     if not is_smtp_email_configured():
         print("Admin digest skipped: SMTP is not configured")
@@ -560,6 +566,12 @@ class MyHandler(SimpleHTTPRequestHandler):
                 self.send_json({'success': False, 'message': '请先登录'}, 401)
                 return
             self.handle_settings()
+        elif self.path == '/api/admin-digest-state':
+            if not self.is_authenticated():
+                self.send_json({'success': False, 'message': '请先登录'}, 401)
+                return
+            state = reset_admin_digest_state()
+            self.send_json({'success': True, 'data': state})
         else:
             self.send_error(404, 'Not Found')
 
