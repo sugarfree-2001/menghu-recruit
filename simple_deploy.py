@@ -18,7 +18,7 @@ import hmac
 import hashlib
 import urllib.parse
 import urllib.request
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
 from email.parser import BytesParser
 from email import policy
@@ -54,6 +54,10 @@ def get_port():
     return 80
 
 PORT = get_port()
+BEIJING_TZ = timezone(timedelta(hours=8))
+
+def get_local_now():
+    return datetime.now(BEIJING_TZ).replace(tzinfo=None)
 
 # 确保目录存在
 os.makedirs(DATA_DIR, exist_ok=True)
@@ -324,7 +328,7 @@ def load_admin_digest_state():
         except:
             pass
 
-    state = {'last_sent_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+    state = {'last_sent_at': get_local_now().strftime('%Y-%m-%d %H:%M:%S')}
     save_admin_digest_state(state)
     return state
 
@@ -337,7 +341,7 @@ def send_admin_candidate_digest(now=None):
         print("Admin digest skipped: SMTP is not configured")
         return
 
-    now = now or datetime.now()
+    now = now or get_local_now()
     state = load_admin_digest_state()
     last_sent_at = parse_local_time(state.get('last_sent_at')) or now
     candidates = []
@@ -366,7 +370,7 @@ def send_admin_candidate_digest(now=None):
     print(f"Admin digest sent: {len(candidates)} candidates")
 
 def next_digest_time(now=None):
-    now = now or datetime.now()
+    now = now or get_local_now()
     targets = [now.replace(hour=6, minute=0, second=0, microsecond=0), now.replace(hour=18, minute=0, second=0, microsecond=0)]
     for target in targets:
         if target > now:
@@ -377,11 +381,11 @@ def admin_digest_loop():
     load_admin_digest_state()
     while True:
         target = next_digest_time()
-        sleep_seconds = max(1, (target - datetime.now()).total_seconds())
+        sleep_seconds = max(1, (target - get_local_now()).total_seconds())
         print(f"Next admin digest scheduled at {target.strftime('%Y-%m-%d %H:%M:%S')}")
         time.sleep(sleep_seconds)
         try:
-            send_admin_candidate_digest(datetime.now())
+            send_admin_candidate_digest(get_local_now())
         except Exception as e:
             print(f"Admin digest error: {e}")
 
@@ -862,13 +866,11 @@ class MyHandler(SimpleHTTPRequestHandler):
         self.wfile.write(json.dumps(data, ensure_ascii=False).encode('utf-8'))
     
     def get_current_time(self):
-        from datetime import datetime
-        return datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        return get_local_now().strftime('%Y-%m-%d %H:%M:%S')
     
     def log_message(self, format, *args):
         # 简化日志
-        from datetime import datetime
-        print(f"[{datetime.now()}] {format % args}")
+        print(f"[{get_local_now()}] {format % args}")
 
 def main():
     print("=== 沃虎科技萌虎计划校招平台 ===")
