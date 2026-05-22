@@ -13,10 +13,12 @@ import time
 import secrets
 import smtplib
 import subprocess
+import threading
 import hmac
 import hashlib
 import urllib.parse
 import urllib.request
+from datetime import datetime, timedelta
 from email.message import EmailMessage
 from email.parser import BytesParser
 from email import policy
@@ -32,6 +34,7 @@ UPLOAD_DIR = os.path.join(DATA_DIR, 'uploads')
 DATA_FILE = os.path.join(DATA_DIR, 'candidates.json')
 DUPLICATE_FILE = os.path.join(DATA_DIR, 'duplicates.json')
 SETTINGS_FILE = os.path.join(DATA_DIR, 'settings.json')
+ADMIN_DIGEST_FILE = os.path.join(DATA_DIR, 'admin_digest_state.json')
 ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'wohukeji666')
 ADMIN_SESSION_FILE = os.path.join(DATA_DIR, 'admin_session.secret')
 
@@ -295,24 +298,99 @@ def send_email_notification(candidate, status):
     else:
         raise RuntimeError('邮件通知未配置飞书 CLI、SMTP 或阿里云邮件推送环境变量')
 
-def send_admin_submission_notification(candidate):
+def parse_local_time(value):
+    if not value:
+        return None
+    try:
+        return datetime.strptime(value, '%Y-%m-%d %H:%M:%S')
+    except ValueError:
+        return None
+
+def format_candidate_line(candidate, index):
+    return (
+        f"{index}. {candidate.get('name', '')} | {candidate.get('school', '')} | {candidate.get('major', '')}\n"
+        f"   邮箱：{candidate.get('email', '')}\n"
+        f"   电话：{candidate.get('phone', '')}\n"
+        f"   状态：{STATUS_LABELS.get(candidate.get('status'), candidate.get('status', ''))}\n"
+        f"   投递时间：{candidate.get('submitTime') or candidate.get('submit_time', '')}\n"
+        f"   自我介绍：{candidate.get('introduction', '')}\n"
+    )
+
+def load_admin_digest_state():
+    if os.path.exists(ADMIN_DIGEST_FILE):
+        try:
+            with open(ADMIN_DIGEST_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except:
+            pass
+
+    state = {'last_sent_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+    save_admin_digest_state(state)
+    return state
+
+def save_admin_digest_state(state):
+    with open(ADMIN_DIGEST_FILE, 'w', encoding='utf-8') as f:
+        json.dump(state, f, ensure_ascii=False, indent=2)
+
+def send_admin_candidate_digest(now=None):
     if not is_smtp_email_configured():
-        raise RuntimeError('管理员投递通知未配置 SMTP 环境变量')
+        print("Admin digest skipped: SMTP is not configured")
+        return
+
+    now = now or datetime.now()
+    state = load_admin_digest_state()
+    last_sent_at = parse_local_time(state.get('last_sent_at')) or now
+    candidates = []
+    for candidate in [normalize_candidate(c) for c in load_candidates()]:
+        submit_time = parse_local_time(candidate.get('submitTime') or candidate.get('submit_time'))
+        if submit_time and last_sent_at < submit_time <= now:
+            candidates.append(candidate)
+
+    if not candidates:
+        state['last_sent_at'] = now.strftime('%Y-%m-%d %H:%M:%S')
+        save_admin_digest_state(state)
+        print("Admin digest skipped: no new candidates")
+        return
 
     to_address = os.environ.get('ADMIN_NOTIFY_EMAIL') or os.environ.get('SMTP_FROM') or os.environ.get('SMTP_USER')
-    subject = f"萌虎计划新简历投递：{candidate.get('name', '未知候选人')}"
+    subject = f"萌虎计划新增候选人名录（{now.strftime('%Y-%m-%d %H:%M')}）"
+    lines = [format_candidate_line(candidate, index) for index, candidate in enumerate(candidates, 1)]
     body = (
-        "收到一份新的萌虎计划简历投递。\n\n"
-        f"姓名：{candidate.get('name', '')}\n"
-        f"学校：{candidate.get('school', '')}\n"
-        f"专业：{candidate.get('major', '')}\n"
-        f"邮箱：{candidate.get('email', '')}\n"
-        f"电话：{candidate.get('phone', '')}\n"
-        f"投递时间：{candidate.get('submitTime') or candidate.get('submit_time', '')}\n"
-        f"简历文件：{candidate.get('resume') or '未上传'}\n\n"
-        f"自我介绍：\n{candidate.get('introduction', '')}\n"
+        f"本周期新增候选人 {len(candidates)} 位。\n"
+        f"统计区间：{last_sent_at.strftime('%Y-%m-%d %H:%M:%S')} 至 {now.strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+        + "\n".join(lines)
     )
     send_smtp_message(to_address, subject, body)
+    state['last_sent_at'] = now.strftime('%Y-%m-%d %H:%M:%S')
+    save_admin_digest_state(state)
+    print(f"Admin digest sent: {len(candidates)} candidates")
+
+def next_digest_time(now=None):
+    now = now or datetime.now()
+    targets = [now.replace(hour=6, minute=0, second=0, microsecond=0), now.replace(hour=18, minute=0, second=0, microsecond=0)]
+    for target in targets:
+        if target > now:
+            return target
+    return (now + timedelta(days=1)).replace(hour=6, minute=0, second=0, microsecond=0)
+
+def admin_digest_loop():
+    load_admin_digest_state()
+    while True:
+        target = next_digest_time()
+        sleep_seconds = max(1, (target - datetime.now()).total_seconds())
+        print(f"Next admin digest scheduled at {target.strftime('%Y-%m-%d %H:%M:%S')}")
+        time.sleep(sleep_seconds)
+        try:
+            send_admin_candidate_digest(datetime.now())
+        except Exception as e:
+            print(f"Admin digest error: {e}")
+
+def start_admin_digest_scheduler():
+    if os.environ.get('ADMIN_DIGEST_ENABLED', 'true').lower() == 'false':
+        print("Admin digest scheduler disabled")
+        return
+    thread = threading.Thread(target=admin_digest_loop, daemon=True)
+    thread.start()
 
 def percent_encode(value):
     return urllib.parse.quote(str(value), safe='~')
@@ -708,11 +786,6 @@ class MyHandler(SimpleHTTPRequestHandler):
             }
             candidates.append(candidate)
             save_candidates(candidates)
-
-            try:
-                send_admin_submission_notification(candidate)
-            except Exception as e:
-                print(f"Admin notification error: {e}")
             
             self.send_json({
                 'success': True,
@@ -803,6 +876,7 @@ def main():
     print(f"校招主页: http://{HOST}:{PORT}/index.html")
     print(f"管理后台: http://{HOST}:{PORT}/admin.html")
     print("按 Ctrl+C 停止服务")
+    start_admin_digest_scheduler()
     
     server = HTTPServer((HOST, PORT), MyHandler)
     try:
