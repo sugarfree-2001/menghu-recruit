@@ -505,19 +505,23 @@
         table.innerHTML = '';
 
         if (candidates.length === 0) {
-            table.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 30px;">暂无候选人数据</td></tr>';
+            table.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 30px;">暂无候选人数据</td></tr>';
             return;
         }
 
         for (var i = 0; i < candidates.length; i++) {
             var c = candidates[i];
             var row = document.createElement('tr');
+            var resumeCell = c.resume
+                ? '<a class="resume-link" href="/uploads/' + encodeURIComponent(c.resume) + '" target="_blank" rel="noopener">查看/下载</a>'
+                : '<span class="muted-text">无</span>';
             row.innerHTML = '<td>' + escapeHtml(c.name) + '</td>' +
                 '<td>' + escapeHtml(c.school) + '</td>' +
                 '<td>' + escapeHtml(c.major) + '</td>' +
                 '<td>' + escapeHtml(c.email) + '</td>' +
                 '<td><span class="status-badge ' + statusColors[c.status] + '">' + escapeHtml(statusLabels[c.status]) + '</span></td>' +
                 '<td>' + escapeHtml(c.submitTime) + '</td>' +
+                '<td>' + resumeCell + '</td>' +
                 '<td>' +
                     '<button class="action-btn view" onclick="viewCandidate(\'' + c.id + '\')">查看</button>' +
                     (c.status !== 'offer' && c.status !== 'rejected' ?

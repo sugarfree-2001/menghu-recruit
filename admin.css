@@ -883,6 +883,10 @@ body.admin-locked .login-screen {
     text-decoration: underline;
 }
 
+.muted-text {
+    color: #999;
+}
+
 .modal-footer {
     display: flex;
     justify-content: flex-end;
