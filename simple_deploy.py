@@ -658,18 +658,53 @@ class MyHandler(SimpleHTTPRequestHandler):
                 cid = str(data.get('id'))
                 status = data.get('status')
                 updated_candidate = None
+                previous_status = None
+                notification_result = {'email': 'skipped', 'sms': 'skipped', 'errors': []}
+
+                if status not in STATUS_LABELS:
+                    self.send_json({'success': False, 'message': '无效状态'}, 400)
+                    return
+
                 for c in candidates:
                     if str(c.get('id')) == cid:
+                        previous_status = c.get('status', 'pending')
+                        if previous_status == status:
+                            updated_candidate = normalize_candidate(c)
+                            notification_result['reason'] = '状态未变化，已跳过重复通知'
+                            break
+
                         c['status'] = status
                         updated_candidate = normalize_candidate(c)
+
+                        sent_statuses = c.get('notification_sent_statuses')
+                        if not isinstance(sent_statuses, list):
+                            sent_statuses = []
+
+                        if status in sent_statuses:
+                            notification_result['reason'] = '该状态通知此前已发送，已跳过重复通知'
+                        else:
+                            notification_result = send_candidate_notifications(updated_candidate, status)
+                            if notification_result.get('email') == 'sent' or notification_result.get('sms') == 'sent':
+                                sent_statuses.append(status)
+                                c['notification_sent_statuses'] = sent_statuses
                         break
+
+                if not updated_candidate:
+                    self.send_json({'success': False, 'message': '候选人不存在'}, 404)
+                    return
+
                 save_candidates(candidates)
-                notification_result = {'email': 'skipped', 'sms': 'skipped', 'errors': []}
-                if updated_candidate:
-                    notification_result = send_candidate_notifications(updated_candidate, status)
+
+                if previous_status == status:
+                    message = '状态未变化，已跳过重复通知'
+                elif notification_result.get('reason'):
+                    message = '状态更新成功，通知未重复发送'
+                else:
+                    message = '状态更新成功'
+
                 self.send_json({
                     'success': True,
-                    'message': '状态更新成功',
+                    'message': message,
                     'notifications': notification_result
                 })
             

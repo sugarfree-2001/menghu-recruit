@@ -22,6 +22,7 @@
     var currentCandidate = null;
     var currentFilter = 'all';
     var currentSort = 'submitTime-desc';
+    var isUpdatingStatus = false;
     var duplicatePage = 1;
     var duplicatePageSize = 10;
     var adminInitialized = false;
@@ -689,6 +690,7 @@
         var modalBody = document.getElementById('modalBody');
         var passBtn = document.getElementById('passBtn');
         var rejectBtn = document.getElementById('rejectBtn');
+        var modalStatus = document.getElementById('modalStatus');
 
         var resumeHtml = currentCandidate.resume
             ? '<a class="resume-link" href="/uploads/' + encodeURIComponent(currentCandidate.resume) + '" target="_blank" rel="noopener">查看/下载简历</a>'
@@ -707,6 +709,8 @@
 
         passBtn.style.display = currentCandidate.status !== 'offer' && currentCandidate.status !== 'rejected' ? 'inline-block' : 'none';
         rejectBtn.style.display = currentCandidate.status !== 'rejected' ? 'inline-block' : 'none';
+        if (modalStatus) modalStatus.textContent = '';
+        setStatusButtonsLoading(false);
 
         modal.classList.add('show');
         document.body.style.overflow = 'hidden';
@@ -717,10 +721,12 @@
         modal.classList.remove('show');
         document.body.style.overflow = 'auto';
         currentCandidate = null;
+        isUpdatingStatus = false;
+        setStatusButtonsLoading(false);
     };
 
     window.updateStatus = function(action) {
-        if (!currentCandidate) return;
+        if (!currentCandidate || isUpdatingStatus) return;
 
         var candidateIndex = -1;
         for (var i = 0; i < candidatesData.length; i++) {
@@ -732,12 +738,25 @@
 
         if (candidateIndex === -1) return;
 
+        var previousStatus = candidatesData[candidateIndex].status;
+        var targetStatus = previousStatus;
         if (action === 'pass') {
-            var nextStatus = getNextStatus(candidatesData[candidateIndex].status);
-            candidatesData[candidateIndex].status = nextStatus;
+            targetStatus = getNextStatus(previousStatus);
         } else if (action === 'reject') {
-            candidatesData[candidateIndex].status = 'rejected';
+            targetStatus = 'rejected';
         }
+
+        if (targetStatus === previousStatus) {
+            alert('候选人已经是当前状态，无需重复操作。');
+            return;
+        }
+
+        isUpdatingStatus = true;
+        candidatesData[candidateIndex].status = targetStatus;
+        setStatusButtonsLoading(true, action);
+        loadCandidates();
+        loadDashboard();
+        loadProcess();
 
         fetch('/api/candidates', {
             method: 'POST',
@@ -745,7 +764,7 @@
             body: JSON.stringify({
                 action: 'update',
                 id: currentCandidate.id,
-                status: candidatesData[candidateIndex].status
+                status: targetStatus
             })
         })
         .then(function(response) {
@@ -759,13 +778,39 @@
                 loadProcess();
                 closeModal();
             });
-            showNotificationResult(result.notifications);
+            showNotificationResult(result.notifications, result.message);
         })
         .catch(function(error) {
             console.error(error);
+            candidatesData[candidateIndex].status = previousStatus;
+            isUpdatingStatus = false;
+            setStatusButtonsLoading(false);
+            loadCandidates();
+            loadDashboard();
+            loadProcess();
             alert('状态更新失败，请稍后重试');
         });
     };
+
+    function setStatusButtonsLoading(loading, action) {
+        var passBtn = document.getElementById('passBtn');
+        var rejectBtn = document.getElementById('rejectBtn');
+        var modalStatus = document.getElementById('modalStatus');
+
+        if (passBtn) {
+            passBtn.disabled = loading;
+            passBtn.textContent = loading && action === 'pass' ? '处理中...' : '通过';
+        }
+
+        if (rejectBtn) {
+            rejectBtn.disabled = loading;
+            rejectBtn.textContent = loading && action === 'reject' ? '处理中...' : '拒绝';
+        }
+
+        if (modalStatus) {
+            modalStatus.textContent = loading ? '正在更新状态，请勿重复点击...' : '';
+        }
+    }
 
     function getNextStatus(current) {
         var order = ['pending', 'screening', 'interview', 'offer'];
@@ -850,7 +895,7 @@
         });
     }
 
-    function showNotificationResult(result) {
+    function showNotificationResult(result, message) {
         if (!result) return;
 
         if (result.errors && result.errors.length) {
@@ -858,9 +903,17 @@
             return;
         }
 
+        if (result.email === 'skipped' && result.reason) {
+            alert(message || '候选人状态已更新，通知未重复发送。');
+            return;
+        }
+
         if (result.email === 'sent' || result.sms === 'sent') {
             alert('候选人状态已更新，通知已发送。');
+            return;
         }
+
+        alert(message || '候选人状态已更新。');
     }
 
     if (document.readyState === 'loading') {

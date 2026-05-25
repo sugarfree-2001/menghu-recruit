@@ -870,6 +870,20 @@ body.admin-locked .login-screen {
     color: #333;
 }
 
+.action-btn:disabled,
+.btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}
+
+.modal-status {
+    margin-right: auto;
+    color: #666;
+    font-size: 0.9rem;
+}
+
 .resume-link {
     display: inline-flex;
     align-items: center;
