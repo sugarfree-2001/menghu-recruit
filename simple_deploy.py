@@ -168,6 +168,20 @@ def is_webhook_sms_configured():
 
 def build_notification_content(candidate, status):
     status_label = STATUS_LABELS.get(status, status)
+    if status == 'rejected':
+        name = candidate.get('name') or '同学'
+        subject = '萌虎计划申请进展通知'
+        body = (
+            f"{name} 同学你好：\n\n"
+            "感谢你申请沃虎科技「萌虎计划」，也感谢你愿意把自己的经历和期待交给我们认真评估。\n\n"
+            "经过本轮综合评估，我们暂时没有办法继续推进你的申请。这个结果并不代表我们否定你的能力或潜力，只是现阶段岗位需求、项目节奏和候选人背景之间，还没有形成足够匹配的交集。\n\n"
+            "我们仍然很感谢你对「业务 AI 重构」方向的关注。这个方向本身需要长期学习、持续实践和真实业务场景里的判断力。如果你之后在 AI 应用、业务分析、产品设计、数据处理、自动化流程或组织协同方面有新的作品、项目或实践经历，也欢迎你继续关注我们后续的机会。\n\n"
+            "祝你接下来的学习、求职和探索都顺利。也希望未来在更合适的时间点，我们还有机会重新认识彼此。\n\n"
+            "沃虎科技\n"
+            "萌虎计划项目组\n"
+        )
+        return subject, body
+
     subject = f'萌虎计划申请进度更新：{status_label}'
     body = (
         f"{candidate.get('name', '同学')}，你好：\n\n"
