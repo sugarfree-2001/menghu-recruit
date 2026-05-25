@@ -524,6 +524,13 @@ class MyHandler(SimpleHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(b'{"status": "healthy"}')
             return
+
+        if self.path.startswith('/uploads/'):
+            if not self.is_authenticated():
+                self.send_json({'success': False, 'message': '请先登录'}, 401)
+                return
+            self.handle_upload_file(self.path[len('/uploads/'):])
+            return
         
         # 处理Logo和图片资源
         if self.path.startswith('/Logo文件/'):
@@ -867,6 +874,44 @@ class MyHandler(SimpleHTTPRequestHandler):
                 self.wfile.write(content)
             else:
                 self.send_error(404, 'File Not Found')
+        except Exception as e:
+            self.send_error(500, str(e))
+
+    def handle_upload_file(self, filename):
+        try:
+            filename = urllib.parse.unquote(filename)
+            safe_filename = os.path.basename(filename)
+            file_path = os.path.abspath(os.path.join(UPLOAD_DIR, safe_filename))
+            upload_root = os.path.abspath(UPLOAD_DIR)
+
+            if not file_path.startswith(upload_root + os.sep) and file_path != upload_root:
+                self.send_error(403, 'Forbidden')
+                return
+
+            if not os.path.exists(file_path):
+                self.send_error(404, 'File Not Found')
+                return
+
+            with open(file_path, 'rb') as f:
+                content = f.read()
+
+            lower_name = safe_filename.lower()
+            if lower_name.endswith('.pdf'):
+                content_type = 'application/pdf'
+            elif lower_name.endswith('.doc'):
+                content_type = 'application/msword'
+            elif lower_name.endswith('.docx'):
+                content_type = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+            else:
+                content_type = 'application/octet-stream'
+
+            download_name = urllib.parse.quote(safe_filename)
+            self.send_response(200)
+            self.send_header('Content-Type', content_type)
+            self.send_header('Content-Disposition', f"inline; filename*=UTF-8''{download_name}")
+            self.send_header('Content-Length', len(content))
+            self.end_headers()
+            self.wfile.write(content)
         except Exception as e:
             self.send_error(500, str(e))
     

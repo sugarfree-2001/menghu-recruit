@@ -454,8 +454,33 @@ body.admin-locked .login-screen {
 
 .section-actions {
     display: flex;
+    align-items: center;
+    flex-wrap: wrap;
     gap: 15px;
     margin-bottom: 20px;
+}
+
+.sort-control {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #666;
+    font-size: 0.9rem;
+}
+
+.sort-control select {
+    min-width: 150px;
+    padding: 9px 12px;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    background: white;
+    color: #333;
+    outline: none;
+}
+
+.sort-control select:focus {
+    border-color: #FF6B35;
+    box-shadow: 0 0 0 3px rgba(255, 107, 53, 0.12);
 }
 
 .btn {
@@ -843,6 +868,19 @@ body.admin-locked .login-screen {
 .modal-body .detail-value {
     flex: 1;
     color: #333;
+}
+
+.resume-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: #1890ff;
+    text-decoration: none;
+    font-weight: 500;
+}
+
+.resume-link:hover {
+    text-decoration: underline;
 }
 
 .modal-footer {

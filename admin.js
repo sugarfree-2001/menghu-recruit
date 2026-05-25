@@ -21,6 +21,7 @@
     var pageSize = 8;
     var currentCandidate = null;
     var currentFilter = 'all';
+    var currentSort = 'submitTime-desc';
     var duplicatePage = 1;
     var duplicatePageSize = 10;
     var adminInitialized = false;
@@ -50,6 +51,48 @@
         candidate.submitTime = candidate.submitTime || candidate.submit_time || '';
         candidate.status = candidate.status || 'pending';
         return candidate;
+    }
+
+    function escapeHtml(value) {
+        return String(value || '').replace(/[&<>"']/g, function(ch) {
+            return {
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#39;'
+            }[ch];
+        });
+    }
+
+    function parseCandidateTime(value) {
+        if (!value) return 0;
+        var normalized = String(value).replace('T', ' ').replace(/-/g, '/');
+        var date = new Date(normalized);
+        return isNaN(date.getTime()) ? 0 : date.getTime();
+    }
+
+    function sortCandidates(candidates) {
+        var parts = currentSort.split('-');
+        var field = parts[0] || 'submitTime';
+        var direction = parts[1] === 'asc' ? 1 : -1;
+
+        return candidates.slice().sort(function(a, b) {
+            var av;
+            var bv;
+
+            if (field === 'submitTime') {
+                av = parseCandidateTime(a.submitTime);
+                bv = parseCandidateTime(b.submitTime);
+            } else {
+                av = String(a[field] || '');
+                bv = String(b[field] || '');
+            }
+
+            if (av < bv) return -1 * direction;
+            if (av > bv) return 1 * direction;
+            return parseCandidateTime(b.submitTime) - parseCandidateTime(a.submitTime);
+        });
     }
 
     function loadCandidatesFromServer(callback) {
@@ -263,6 +306,7 @@
         var nextPage = document.getElementById('nextPage');
         var saveSettings = document.getElementById('saveSettings');
         var saveNotifications = document.getElementById('saveNotifications');
+        var candidateSort = document.getElementById('candidateSort');
 
         if (refreshBtn) {
             refreshBtn.addEventListener('click', function() {
@@ -303,6 +347,15 @@
 
         if (saveNotifications) {
             saveNotifications.addEventListener('click', saveNotificationSettings);
+        }
+
+        if (candidateSort) {
+            candidateSort.value = currentSort;
+            candidateSort.addEventListener('change', function() {
+                currentSort = this.value;
+                currentPage = 1;
+                loadCandidates();
+            });
         }
     }
 
@@ -393,12 +446,15 @@
     }
 
     function getFilteredCandidates() {
+        var filtered;
         if (currentFilter === 'all') {
-            return candidatesData;
+            filtered = candidatesData;
+        } else {
+            filtered = candidatesData.filter(function(c) {
+                return c.status === currentFilter;
+            });
         }
-        return candidatesData.filter(function(c) {
-            return c.status === currentFilter;
-        });
+        return sortCandidates(filtered);
     }
 
     function searchCandidates(keyword) {
@@ -415,7 +471,7 @@
                    c.email.toLowerCase().includes(keywordLower);
         });
 
-        renderCandidateTable(filtered);
+        renderCandidateTable(sortCandidates(filtered));
     }
 
     function loadDashboard() {
@@ -456,12 +512,12 @@
         for (var i = 0; i < candidates.length; i++) {
             var c = candidates[i];
             var row = document.createElement('tr');
-            row.innerHTML = '<td>' + c.name + '</td>' +
-                '<td>' + c.school + '</td>' +
-                '<td>' + c.major + '</td>' +
-                '<td>' + c.email + '</td>' +
-                '<td><span class="status-badge ' + statusColors[c.status] + '">' + statusLabels[c.status] + '</span></td>' +
-                '<td>' + c.submitTime + '</td>' +
+            row.innerHTML = '<td>' + escapeHtml(c.name) + '</td>' +
+                '<td>' + escapeHtml(c.school) + '</td>' +
+                '<td>' + escapeHtml(c.major) + '</td>' +
+                '<td>' + escapeHtml(c.email) + '</td>' +
+                '<td><span class="status-badge ' + statusColors[c.status] + '">' + escapeHtml(statusLabels[c.status]) + '</span></td>' +
+                '<td>' + escapeHtml(c.submitTime) + '</td>' +
                 '<td>' +
                     '<button class="action-btn view" onclick="viewCandidate(\'' + c.id + '\')">查看</button>' +
                     (c.status !== 'offer' && c.status !== 'rejected' ?
@@ -630,15 +686,20 @@
         var passBtn = document.getElementById('passBtn');
         var rejectBtn = document.getElementById('rejectBtn');
 
-        modalTitle.innerHTML = '候选人详情 - ' + currentCandidate.name;
-        modalBody.innerHTML = '<div class="detail-row"><span class="detail-label">姓名</span><span class="detail-value">' + currentCandidate.name + '</span></div>' +
-            '<div class="detail-row"><span class="detail-label">院校</span><span class="detail-value">' + currentCandidate.school + '</span></div>' +
-            '<div class="detail-row"><span class="detail-label">专业</span><span class="detail-value">' + currentCandidate.major + '</span></div>' +
-            '<div class="detail-row"><span class="detail-label">邮箱</span><span class="detail-value">' + currentCandidate.email + '</span></div>' +
-            '<div class="detail-row"><span class="detail-label">手机</span><span class="detail-value">' + currentCandidate.phone + '</span></div>' +
-            '<div class="detail-row"><span class="detail-label">状态</span><span class="detail-value"><span class="status-badge ' + statusColors[currentCandidate.status] + '">' + statusLabels[currentCandidate.status] + '</span></span></div>' +
-            '<div class="detail-row"><span class="detail-label">投递时间</span><span class="detail-value">' + currentCandidate.submitTime + '</span></div>' +
-            '<h4>自我介绍</h4><p style="color: #666; line-height: 1.6;">' + (currentCandidate.introduction || '无') + '</p>';
+        var resumeHtml = currentCandidate.resume
+            ? '<a class="resume-link" href="/uploads/' + encodeURIComponent(currentCandidate.resume) + '" target="_blank" rel="noopener">查看/下载简历</a>'
+            : '无';
+
+        modalTitle.innerHTML = '候选人详情 - ' + escapeHtml(currentCandidate.name);
+        modalBody.innerHTML = '<div class="detail-row"><span class="detail-label">姓名</span><span class="detail-value">' + escapeHtml(currentCandidate.name) + '</span></div>' +
+            '<div class="detail-row"><span class="detail-label">院校</span><span class="detail-value">' + escapeHtml(currentCandidate.school) + '</span></div>' +
+            '<div class="detail-row"><span class="detail-label">专业</span><span class="detail-value">' + escapeHtml(currentCandidate.major) + '</span></div>' +
+            '<div class="detail-row"><span class="detail-label">邮箱</span><span class="detail-value">' + escapeHtml(currentCandidate.email) + '</span></div>' +
+            '<div class="detail-row"><span class="detail-label">手机</span><span class="detail-value">' + escapeHtml(currentCandidate.phone) + '</span></div>' +
+            '<div class="detail-row"><span class="detail-label">状态</span><span class="detail-value"><span class="status-badge ' + statusColors[currentCandidate.status] + '">' + escapeHtml(statusLabels[currentCandidate.status]) + '</span></span></div>' +
+            '<div class="detail-row"><span class="detail-label">投递时间</span><span class="detail-value">' + escapeHtml(currentCandidate.submitTime) + '</span></div>' +
+            '<div class="detail-row"><span class="detail-label">简历附件</span><span class="detail-value">' + resumeHtml + '</span></div>' +
+            '<h4>自我介绍</h4><p style="color: #666; line-height: 1.6; white-space: pre-wrap;">' + escapeHtml(currentCandidate.introduction || '无') + '</p>';
 
         passBtn.style.display = currentCandidate.status !== 'offer' && currentCandidate.status !== 'rejected' ? 'inline-block' : 'none';
         rejectBtn.style.display = currentCandidate.status !== 'rejected' ? 'inline-block' : 'none';
