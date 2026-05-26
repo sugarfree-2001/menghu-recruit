@@ -39,9 +39,9 @@ ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'wohukeji666')
 ADMIN_SESSION_FILE = os.path.join(DATA_DIR, 'admin_session.secret')
 
 STATUS_LABELS = {
-    'pending': '简历投递',
-    'screening': '简历筛选',
-    'interview': '面试评估',
+    'pending': '简历初筛',
+    'screening': '线上沟通',
+    'interview': '终轮面试',
     'offer': '发放 offer',
     'rejected': '已拒绝'
 }
@@ -182,11 +182,35 @@ def build_notification_content(candidate, status):
         )
         return subject, body
 
-    subject = f'萌虎计划申请进度更新：{status_label}'
+    name = candidate.get('name') or '同学'
+    subject = f'萌虎计划申请进展通知：{status_label}'
+    stage_messages = {
+        'pending': (
+            "我们已经收到你的申请材料，并会进入简历初筛环节。\n\n"
+            "「萌虎计划」关注的不只是履历标签，也包括你面对真实业务问题时的学习速度、判断力和创造力。接下来我们会认真阅读你的经历、项目和表达，尽可能完整地理解你的潜力与适配方向。\n\n"
+            "感谢你愿意把这段机会交给我们评估。后续如有新的进展，我们会继续通过邮件与你同步。"
+        ),
+        'screening': (
+            "很高兴通知你，你的申请已经进入「线上沟通」阶段。\n\n"
+            "我们希望通过一次更直接的交流，了解你对业务 AI 重构、总经理助理角色以及真实组织问题的思考方式。相比标准答案，我们更重视你是否能提出有判断、有结构、有行动感的想法。\n\n"
+            "后续我们会与你确认沟通安排。也请你提前准备自己最能代表能力和潜力的项目、作品或经历。"
+        ),
+        'interview': (
+            "很高兴通知你，你已经进入「终轮面试」阶段。\n\n"
+            "走到这一步，说明我们在你的经历和表达中看到了值得进一步认真了解的潜力。终轮面试会更关注你是否能够站在业务现场思考问题，是否具备持续学习、拆解复杂问题并推动结果发生的能力。\n\n"
+            "请你把这次面试当作一次真实的双向沟通：我们会评估匹配度，也欢迎你充分了解项目目标、工作方式和成长空间。"
+        ),
+        'offer': (
+            "很高兴通知你，我们希望向你发出「萌虎计划」实习机会。\n\n"
+            "在前面的沟通和评估中，我们看到了你参与业务 AI 重构项目的潜力，也期待你以总经理助理的角色进入真实业务场景，参与问题识别、方案设计和落地推进。\n\n"
+            "后续我们会继续与你确认 offer 细节、入职安排和项目启动信息。欢迎你加入这段有挑战、也有成长密度的旅程。"
+        )
+    }
     body = (
-        f"{candidate.get('name', '同学')}，你好：\n\n"
-        f"你的萌虎计划申请状态已更新为：{status_label}。\n\n"
-        "感谢你对沃虎科技的关注。\n"
+        f"{name} 同学你好：\n\n"
+        f"{stage_messages.get(status, f'你的萌虎计划申请状态已更新为：{status_label}。')}\n\n"
+        "沃虎科技\n"
+        "萌虎计划项目组\n"
     )
     return subject, body
 

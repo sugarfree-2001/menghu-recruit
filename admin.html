@@ -5,7 +5,7 @@
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>萌虎计划 - 候选人管理后台</title>
-    <link rel="stylesheet" href="admin.css?v=20260525c">
+    <link rel="stylesheet" href="admin.css?v=20260526a">
     <link href="https://fonts.googleapis.com/css2?family=PingFang+SC:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 </head>
 <body class="admin-locked">
@@ -76,9 +76,9 @@
                     <div class="date-filter">
                         <select id="statusFilter">
                             <option value="all">全部状态</option>
-                            <option value="pending">简历投递</option>
-                            <option value="screening">简历筛选</option>
-                            <option value="interview">面试评估</option>
+                            <option value="pending">简历初筛</option>
+                            <option value="screening">线上沟通</option>
+                            <option value="interview">终轮面试</option>
                             <option value="offer">发放offer</option>
                             <option value="rejected">已拒绝</option>
                         </select>
@@ -99,14 +99,14 @@
                         <div class="stat-icon">✅</div>
                         <div class="stat-info">
                             <span class="stat-value" id="screeningCount">0</span>
-                            <span class="stat-label">简历筛选</span>
+                            <span class="stat-label">线上沟通</span>
                         </div>
                     </div>
                     <div class="stat-card">
                         <div class="stat-icon">👨‍💼</div>
                         <div class="stat-info">
                             <span class="stat-value" id="interviewCount">0</span>
-                            <span class="stat-label">面试评估</span>
+                            <span class="stat-label">终轮面试</span>
                         </div>
                     </div>
                     <div class="stat-card">
@@ -139,15 +139,15 @@
                         <h3>流程转化漏斗</h3>
                         <div class="funnel-chart">
                             <div class="funnel-item" style="width: 100%">
-                                <span class="funnel-label">简历投递</span>
+                                <span class="funnel-label">简历初筛</span>
                                 <span class="funnel-value">100%</span>
                             </div>
                             <div class="funnel-item" style="width: 60%">
-                                <span class="funnel-label">简历筛选</span>
+                                <span class="funnel-label">线上沟通</span>
                                 <span class="funnel-value">60%</span>
                             </div>
                             <div class="funnel-item" style="width: 35%">
-                                <span class="funnel-label">面试评估</span>
+                                <span class="funnel-label">终轮面试</span>
                                 <span class="funnel-value">35%</span>
                             </div>
                             <div class="funnel-item" style="width: 20%">
@@ -204,10 +204,10 @@
                     <div class="process-step-card" id="step1">
                         <div class="step-header">
                             <span class="step-number">1</span>
-                            <h3>简历投递</h3>
+                            <h3>简历初筛</h3>
                         </div>
                         <div class="step-content">
-                            <p class="step-desc">收集候选人简历，等待筛选</p>
+                            <p class="step-desc">认真阅读候选人材料，判断初步匹配度</p>
                             <div class="step-count">
                                 <span class="count-value" id="step1Count">0</span>
                                 <span class="count-label">待处理</span>
@@ -219,13 +219,13 @@
                     <div class="process-step-card" id="step2">
                         <div class="step-header">
                             <span class="step-number">2</span>
-                            <h3>简历筛选</h3>
+                            <h3>线上沟通</h3>
                         </div>
                         <div class="step-content">
-                            <p class="step-desc">HR筛选简历，评估基本条件</p>
+                            <p class="step-desc">通过线上交流了解动机、思考方式和潜力</p>
                             <div class="step-count">
                                 <span class="count-value" id="step2Count">0</span>
-                                <span class="count-label">待筛选</span>
+                                <span class="count-label">待沟通</span>
                             </div>
                             <button class="btn btn-primary" onclick="showStepCandidates('screening')">查看详情</button>
                         </div>
@@ -234,13 +234,13 @@
                     <div class="process-step-card" id="step3">
                         <div class="step-header">
                             <span class="step-number">3</span>
-                            <h3>面试评估</h3>
+                            <h3>终轮面试</h3>
                         </div>
                         <div class="step-content">
-                            <p class="step-desc">技术面试，评估专业能力</p>
+                            <p class="step-desc">围绕真实业务场景评估综合匹配度</p>
                             <div class="step-count">
                                 <span class="count-value" id="step3Count">0</span>
-                                <span class="count-label">待面试</span>
+                                <span class="count-label">待终面</span>
                             </div>
                             <button class="btn btn-primary" onclick="showStepCandidates('interview')">查看详情</button>
                         </div>
@@ -252,7 +252,7 @@
                             <h3>发放offer</h3>
                         </div>
                         <div class="step-content">
-                            <p class="step-desc">发送offer，等待确认</p>
+                            <p class="step-desc">确认合作意向，推进 offer 与入职安排</p>
                             <div class="step-count">
                                 <span class="count-value" id="step4Count">0</span>
                                 <span class="count-label">待确认</span>
@@ -379,6 +379,6 @@
         </div>
     </div>
 
-    <script src="admin.js?v=20260525c"></script>
+    <script src="admin.js?v=20260526a"></script>
 </body>
 </html>

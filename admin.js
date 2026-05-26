@@ -33,9 +33,9 @@
     };
 
     var statusLabels = {
-        pending: '简历投递',
-        screening: '简历筛选',
-        interview: '面试评估',
+        pending: '简历初筛',
+        screening: '线上沟通',
+        interview: '终轮面试',
         offer: '发放offer',
         rejected: '已拒绝'
     };
